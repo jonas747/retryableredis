@@ -1,8 +1,10 @@
 package retryableredis
 
 import (
+	"bufio"
 	"github.com/mediocregopher/radix"
 	"github.com/mediocregopher/radix/resp"
+	"io"
 	"net"
 	"strings"
 	"time"
@@ -116,4 +118,112 @@ func (rc *retryableRedisConn) Decode(um resp.Unmarshaler) error {
 // should not be called on the returned Conn.
 func (rc *retryableRedisConn) NetConn() net.Conn {
 	return rc.inner.NetConn()
+}
+
+func FlatCmd(rcv interface{}, cmd, key string, args ...interface{}) radix.CmdAction {
+	retryableCmd := &RetryableFlatCmd{
+		rcv:  rcv,
+		cmd:  cmd,
+		key:  key,
+		args: args,
+
+		inner: radix.FlatCmd(rcv, cmd, key, args...),
+	}
+
+	return retryableCmd
+}
+
+type RetryableFlatCmd struct {
+	rcv  interface{}
+	cmd  string
+	key  string
+	args []interface{}
+
+	inner radix.CmdAction
+}
+
+func (r *RetryableFlatCmd) getInner() radix.CmdAction {
+	if r.inner == nil {
+		r.inner = radix.FlatCmd(r.rcv, r.cmd, r.key, r.args...)
+	}
+
+	return r.inner
+}
+
+func (r *RetryableFlatCmd) Keys() []string {
+	return r.getInner().Keys()
+}
+
+func (r *RetryableFlatCmd) Run(conn radix.Conn) error {
+	if err := conn.Encode(r); err != nil {
+		return err
+	}
+
+	return conn.Decode(r)
+}
+
+func (c *RetryableFlatCmd) MarshalRESP(w io.Writer) error {
+	return c.getInner().MarshalRESP(w)
+}
+
+func (c *RetryableFlatCmd) UnmarshalRESP(br *bufio.Reader) error {
+	err := c.getInner().UnmarshalRESP(br)
+
+	// can't reuse the action after this
+	c.inner = nil
+
+	return err
+}
+
+func Cmd(rcv interface{}, cmd string, args ...string) radix.CmdAction {
+	retryableCmd := &RetryableCmd{
+		rcv:  rcv,
+		cmd:  cmd,
+		args: args,
+
+		inner: radix.Cmd(rcv, cmd, args...),
+	}
+
+	return retryableCmd
+}
+
+type RetryableCmd struct {
+	rcv  interface{}
+	cmd  string
+	key  string
+	args []string
+
+	inner radix.CmdAction
+}
+
+func (r *RetryableCmd) getInner() radix.CmdAction {
+	if r.inner == nil {
+		r.inner = radix.Cmd(r.rcv, r.cmd, r.args...)
+	}
+
+	return r.inner
+}
+
+func (r *RetryableCmd) Keys() []string {
+	return r.getInner().Keys()
+}
+
+func (r *RetryableCmd) Run(conn radix.Conn) error {
+	if err := conn.Encode(r); err != nil {
+		return err
+	}
+	return conn.Decode(r)
+}
+
+func (c *RetryableCmd) MarshalRESP(w io.Writer) error {
+	return c.getInner().MarshalRESP(w)
+}
+
+func (c *RetryableCmd) UnmarshalRESP(br *bufio.Reader) error {
+	err := c.getInner().UnmarshalRESP(br)
+
+	// can't reuse the action after this
+	c.inner = nil
+
+	return err
 }
