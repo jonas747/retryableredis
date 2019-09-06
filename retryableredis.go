@@ -2,12 +2,13 @@ package retryableredis
 
 import (
 	"bufio"
-	"github.com/mediocregopher/radix"
-	"github.com/mediocregopher/radix/resp"
 	"io"
 	"net"
 	"strings"
 	"time"
+
+	"github.com/mediocregopher/radix/v3"
+	"github.com/mediocregopher/radix/v3/resp"
 )
 
 type retryableRedisConn struct {
